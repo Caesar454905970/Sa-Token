@@ -1,0 +1,53 @@
+name: Build Sa-Token Boot4 Artifact
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "pom.xml"
+      - "sa-token-dependencies/**"
+      - "sa-token-special-dependencies/**"
+      - "sa-token-plugin/**"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build-alone-redis-boot4:
+    runs-on: ubuntu-latest
+
+    env:
+      MODULE_PATH: sa-token-plugin/sa-token-alone-redis-by-spring-boot4
+      MODULE_ARTIFACT: sa-token-alone-redis-by-spring-boot4
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build target module
+        run: >
+          mvn -B -ntp
+          -pl ${{ env.MODULE_PATH }}
+          -am
+          clean package
+          -DskipTests
+          -Dmaven.javadoc.skip=true
+          -Dgpg.skip=true
+
+      - name: Prepare downloadable artifact bundle
+        run: |
+          mkdir -p dist
+          cp "${MODULE_PATH}/pom.xml" "dist/${MODULE_ARTIFACT}.pom"
+          cp "${MODULE_PATH}/target/"*.jar dist/
+
+      - name: Upload artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sa-token-alone-redis-by-spring-boot4
+          path: dist/*
+          if-no-files-found: error
