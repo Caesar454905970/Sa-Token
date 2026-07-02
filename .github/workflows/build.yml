@@ -39,11 +39,129 @@ jobs:
           -Dmaven.javadoc.skip=true
           -Dgpg.skip=true
 
+      - name: Generate install-ready POM
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          NS = {"m": "http://maven.apache.org/POM/4.0.0"}
+          ET.register_namespace("", NS["m"])
+
+          repo = Path(".")
+          root_pom = repo / "pom.xml"
+          module_pom = repo / "sa-token-plugin" / "sa-token-alone-redis-by-spring-boot4" / "pom.xml"
+          boot4_deps_pom = repo / "sa-token-special-dependencies" / "sa-token-spring-boot4-dependencies" / "pom.xml"
+          out_pom = repo / "sa-token-plugin" / "sa-token-alone-redis-by-spring-boot4" / "target" / "sa-token-alone-redis-by-spring-boot4-install.pom"
+
+          def parse(path: Path):
+              return ET.parse(path).getroot()
+
+          def child_text(node, xpath: str):
+              found = node.find(xpath, NS)
+              return found.text.strip() if found is not None and found.text else None
+
+          root = parse(root_pom)
+          module = parse(module_pom)
+          boot4 = parse(boot4_deps_pom)
+
+          module_version = child_text(root, "m:properties/m:revision")
+          spring_boot4_version = child_text(boot4, "m:properties/m:springboot4.version")
+          commons_pool2_version = None
+
+          for dep in boot4.findall("m:dependencyManagement/m:dependencies/m:dependency", NS):
+              artifact_id = child_text(dep, "m:artifactId")
+              if artifact_id == "commons-pool2":
+                  commons_pool2_version = child_text(dep, "m:version")
+                  break
+
+          if not module_version:
+              raise SystemExit("Unable to resolve module version from root pom.xml")
+          if not spring_boot4_version:
+              raise SystemExit("Unable to resolve springboot4.version from sa-token-spring-boot4-dependencies")
+          if not commons_pool2_version:
+              raise SystemExit("Unable to resolve commons-pool2 version from sa-token-spring-boot4-dependencies")
+
+          project = ET.Element(f"{{{NS['m']}}}project")
+          ET.SubElement(project, f"{{{NS['m']}}}modelVersion").text = "4.0.0"
+          ET.SubElement(project, f"{{{NS['m']}}}groupId").text = "cn.dev33"
+          ET.SubElement(project, f"{{{NS['m']}}}artifactId").text = child_text(module, "m:artifactId")
+          ET.SubElement(project, f"{{{NS['m']}}}version").text = module_version
+          ET.SubElement(project, f"{{{NS['m']}}}packaging").text = "jar"
+          ET.SubElement(project, f"{{{NS['m']}}}name").text = child_text(module, "m:name")
+          ET.SubElement(project, f"{{{NS['m']}}}description").text = child_text(module, "m:description")
+
+          dependencies = ET.SubElement(project, f"{{{NS['m']}}}dependencies")
+
+          def add_dependency(group_id: str, artifact_id: str, version: str, optional: bool = False):
+              dep = ET.SubElement(dependencies, f"{{{NS['m']}}}dependency")
+              ET.SubElement(dep, f"{{{NS['m']}}}groupId").text = group_id
+              ET.SubElement(dep, f"{{{NS['m']}}}artifactId").text = artifact_id
+              ET.SubElement(dep, f"{{{NS['m']}}}version").text = version
+              if optional:
+                  ET.SubElement(dep, f"{{{NS['m']}}}optional").text = "true"
+
+          add_dependency("org.springframework.boot", "spring-boot-starter-data-redis", spring_boot4_version)
+          add_dependency("cn.dev33", "sa-token-redis-template", module_version, optional=True)
+          add_dependency("cn.dev33", "sa-token-redis-template-jdk-serializer", module_version, optional=True)
+          add_dependency("org.apache.commons", "commons-pool2", commons_pool2_version, optional=True)
+
+          ET.indent(project, space="    ")
+          ET.ElementTree(project).write(out_pom, encoding="utf-8", xml_declaration=True)
+          print(f"Generated install-ready pom: {out_pom}")
+          PY
+
       - name: Prepare downloadable artifact bundle
         run: |
           mkdir -p dist
-          cp "${MODULE_PATH}/pom.xml" "dist/${MODULE_ARTIFACT}.pom"
+          MODULE_VERSION="$(python - <<'PY'
+          import xml.etree.ElementTree as ET
+          ns = {"m": "http://maven.apache.org/POM/4.0.0"}
+          root = ET.parse("sa-token-plugin/sa-token-alone-redis-by-spring-boot4/target/sa-token-alone-redis-by-spring-boot4-install.pom").getroot()
+          print(root.find("m:version", ns).text.strip())
+          PY
+          )"
+          REPO_PATH="dist/maven-repo/cn/dev33/${MODULE_ARTIFACT}/${MODULE_VERSION}"
+          mkdir -p "${REPO_PATH}"
+          cp "${MODULE_PATH}/pom.xml" "dist/${MODULE_ARTIFACT}-raw.pom"
+          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}-install.pom" "dist/${MODULE_ARTIFACT}.pom"
           cp "${MODULE_PATH}/target/"*.jar dist/
+          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}.jar" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}.jar"
+          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}-sources.jar" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}-sources.jar"
+          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}-install.pom" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}.pom"
+          python - <<'PY'
+          from hashlib import md5, sha1
+          from pathlib import Path
+
+          repo_path = Path("dist/maven-repo")
+          for file_path in repo_path.rglob("*"):
+              if not file_path.is_file():
+                  continue
+              data = file_path.read_bytes()
+              file_path.with_suffix(file_path.suffix + ".md5").write_text(md5(data).hexdigest(), encoding="utf-8")
+              file_path.with_suffix(file_path.suffix + ".sha1").write_text(sha1(data).hexdigest(), encoding="utf-8")
+          PY
+          cat > "dist/install-command.txt" <<'EOF'
+          mvn install:install-file \
+            -Dfile=sa-token-alone-redis-by-spring-boot4-__VERSION__.jar \
+            -DpomFile=sa-token-alone-redis-by-spring-boot4.pom \
+            -Dsources=sa-token-alone-redis-by-spring-boot4-__VERSION__-sources.jar
+          EOF
+          sed -i "s/__VERSION__/${MODULE_VERSION}/g" "dist/install-command.txt"
+          cat > "dist/maven-repo/README.txt" <<'EOF'
+          This directory is a ready-to-copy Maven repository fragment.
+
+          Option 1:
+          Copy the cn/dev33/sa-token-alone-redis-by-spring-boot4 folder under:
+          ~/.m2/repository/
+
+          Option 2:
+          Use the install-command.txt file from the artifact root to install via Maven.
+          EOF
+          (
+            cd dist
+            zip -r "${MODULE_ARTIFACT}-bundle-${MODULE_VERSION}.zip" ./*
+          )
 
       - name: Upload artifact bundle
         uses: actions/upload-artifact@v4
