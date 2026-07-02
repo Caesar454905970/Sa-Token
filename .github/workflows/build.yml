@@ -121,14 +121,17 @@ jobs:
           print(root.find("m:version", ns).text.strip())
           PY
           )"
+          MAIN_JAR="${MODULE_PATH}/target/${MODULE_ARTIFACT}-${MODULE_VERSION}.jar"
+          SOURCES_JAR="${MODULE_PATH}/target/${MODULE_ARTIFACT}-${MODULE_VERSION}-sources.jar"
+          INSTALL_POM="${MODULE_PATH}/target/${MODULE_ARTIFACT}-install.pom"
           REPO_PATH="dist/maven-repo/cn/dev33/${MODULE_ARTIFACT}/${MODULE_VERSION}"
           mkdir -p "${REPO_PATH}"
           cp "${MODULE_PATH}/pom.xml" "dist/${MODULE_ARTIFACT}-raw.pom"
-          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}-install.pom" "dist/${MODULE_ARTIFACT}.pom"
+          cp "${INSTALL_POM}" "dist/${MODULE_ARTIFACT}.pom"
           cp "${MODULE_PATH}/target/"*.jar dist/
-          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}.jar" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}.jar"
-          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}-sources.jar" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}-sources.jar"
-          cp "${MODULE_PATH}/target/${MODULE_ARTIFACT}-install.pom" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}.pom"
+          cp "${MAIN_JAR}" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}.jar"
+          cp "${SOURCES_JAR}" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}-sources.jar"
+          cp "${INSTALL_POM}" "${REPO_PATH}/${MODULE_ARTIFACT}-${MODULE_VERSION}.pom"
           python - <<'PY'
           from hashlib import md5, sha1
           from pathlib import Path
