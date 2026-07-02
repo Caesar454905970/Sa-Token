@@ -144,13 +144,17 @@ jobs:
               file_path.with_suffix(file_path.suffix + ".md5").write_text(md5(data).hexdigest(), encoding="utf-8")
               file_path.with_suffix(file_path.suffix + ".sha1").write_text(sha1(data).hexdigest(), encoding="utf-8")
           PY
-          cat > "dist/install-command.txt" <<'EOF'
+          cat > "dist/install-command.sh" <<'EOF'
           mvn install:install-file \
             -Dfile=sa-token-alone-redis-by-spring-boot4-__VERSION__.jar \
             -DpomFile=sa-token-alone-redis-by-spring-boot4.pom \
             -Dsources=sa-token-alone-redis-by-spring-boot4-__VERSION__-sources.jar
           EOF
-          sed -i "s/__VERSION__/${MODULE_VERSION}/g" "dist/install-command.txt"
+          sed -i "s/__VERSION__/${MODULE_VERSION}/g" "dist/install-command.sh"
+          cat > "dist/install-command.cmd" <<'EOF'
+          mvn install:install-file -Dfile=sa-token-alone-redis-by-spring-boot4-__VERSION__.jar -DpomFile=sa-token-alone-redis-by-spring-boot4.pom -Dsources=sa-token-alone-redis-by-spring-boot4-__VERSION__-sources.jar
+          EOF
+          sed -i "s/__VERSION__/${MODULE_VERSION}/g" "dist/install-command.cmd"
           cat > "dist/maven-repo/README.txt" <<'EOF'
           This directory is a ready-to-copy Maven repository fragment.
 
@@ -159,7 +163,7 @@ jobs:
           ~/.m2/repository/
 
           Option 2:
-          Use the install-command.txt file from the artifact root to install via Maven.
+          Use install-command.sh on Linux/macOS, or install-command.cmd on Windows.
           EOF
           (
             cd dist
